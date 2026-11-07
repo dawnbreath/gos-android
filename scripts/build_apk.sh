@@ -10,6 +10,7 @@
 #   PLUGINS     directory with the plugin stand-ins (build_android.sh, stage plugins)
 #   DATA_OVERRIDE  optional dir laid out like Data whose files replace the originals
 #                  (tools/convert_shaders_gles.py output; StreamingAssets/ included)
+#   NO_STREAMING  set to leave StreamingAssets out (they go to /sdcard/GoSRecomp: make_data_parts.py)
 #   OUT       output directory
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -47,10 +48,12 @@ if [ -n "${DATA_OVERRIDE:-}" ]; then  # converted files, laid out like Data
   [ -f "$DATA_OVERRIDE/Resources/unity_builtin_extra" ] && cp "$DATA_OVERRIDE/Resources/unity_builtin_extra" "$D/"
 fi
 
-echo "== streaming assets"
-cp -r "$DATA/StreamingAssets"/. "$STAGE/assets/"
-if [ -n "${DATA_OVERRIDE:-}" ] && [ -d "$DATA_OVERRIDE/StreamingAssets" ]; then
-  cp -r "$DATA_OVERRIDE/StreamingAssets"/. "$STAGE/assets/"
+if [ -z "${NO_STREAMING:-}" ]; then
+  echo "== streaming assets"
+  cp -r "$DATA/StreamingAssets"/. "$STAGE/assets/"
+  if [ -n "${DATA_OVERRIDE:-}" ] && [ -d "$DATA_OVERRIDE/StreamingAssets" ]; then
+    cp -r "$DATA_OVERRIDE/StreamingAssets"/. "$STAGE/assets/"
+  fi
 fi
 
 echo "== resources and manifest"

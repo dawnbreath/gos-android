@@ -5,6 +5,7 @@
 //   - controller_hooks.cpp: hooks call the original functions unchanged
 //   - debug_menu.cpp: not ported yet
 #include <cstdio>
+#include <cstring>
 #include <pthread.h>
 #include <string>
 #include <unistd.h>
@@ -57,7 +58,7 @@ namespace recomp
 
     // mouse_keys.cpp / display.cpp
     void* WrapInputIcall(const char*, void* original) { return original; }
-    void* WrapDisplayIcall(const char*, void* original) { return original; }
+    void* WrapDisplayIcall(const char* name, void* original);
     bool MouseButtonsEnabled() { return false; }
 
     // debug_menu.cpp
@@ -84,4 +85,48 @@ extern "C"
     __attribute__((section("il2cpp"), used, noinline)) void gosr_il2cpp_section_marker() {}
     __attribute__((visibility("hidden"))) int __data_start[1];
     __attribute__((visibility("hidden"))) int __end__[1];
+}
+
+// Streaming assets (asset bundles, movies, 2.5 GB) can live outside the APK,
+// which then stays small enough to transfer: when
+// /sdcard/GoSRecomp/StreamingAssets/ab exists, Application.streamingAssetsPath
+// points there (needs "All files access" for the app).
+#include <sys/stat.h>
+struct Il2CppString;
+extern "C" Il2CppString* il2cpp_string_new(const char* str);
+
+namespace
+{
+    const char* ExternalStreamingAssets()
+    {
+        static const char* dir = [] () -> const char* {
+            static const char* candidates[] = { "/storage/emulated/0/GoSRecomp/StreamingAssets", "/sdcard/GoSRecomp/StreamingAssets" };
+            for (const char* c : candidates)
+            {
+                struct stat st;
+                std::string ab = std::string(c) + "/ab";
+                if (stat(ab.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+                {
+                    __android_log_print(ANDROID_LOG_INFO, "GoSRecomp", "streaming assets: %s", c);
+                    return c;
+                }
+            }
+            __android_log_print(ANDROID_LOG_WARN, "GoSRecomp",
+                                "streaming assets: no /sdcard/GoSRecomp/StreamingAssets/ab (missing, or no All files access); using the APK's");
+            return nullptr;
+        }();
+        return dir;
+    }
+
+    Il2CppString* StreamingAssetsPath() { return il2cpp_string_new(ExternalStreamingAssets()); }
+}
+
+namespace recomp
+{
+    void* WrapDisplayIcall(const char* name, void* original)
+    {
+        if (!strcmp(name, "UnityEngine.Application::get_streamingAssetsPath()") && ExternalStreamingAssets())
+            return reinterpret_cast<void*>(&StreamingAssetsPath);
+        return original;
+    }
 }

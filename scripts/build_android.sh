@@ -89,8 +89,9 @@ if has gap; then
 fi
 if has link; then
   echo "== link"
-  # lld: the text exceeds the 128 MB reach of arm64 branches; lld adds range-extension thunks
-  "$CXX" -fuse-ld=lld -shared -o "$BUILD_DIR/libil2cpp.so" -Wl,--gc-sections -Wl,-soname,libil2cpp.so \
+  # The text exceeds the 128 MB reach of arm64 branches: a recent lld (LLD=/usr/bin/ld.lld,
+  # LLVM 18 tested) adds range-extension thunks; the NDK r19c lld and BFD ld do not
+  "$CXX" -fuse-ld="${LLD:-lld}" -shared -o "$BUILD_DIR/libil2cpp.so" -Wl,--gc-sections -Wl,-soname,libil2cpp.so \
       "$BUILD_DIR"/il2cpp/*.o "$BUILD_DIR"/gc/*.o "$BUILD_DIR"/zlib/*.o "$BUILD_DIR"/glue/*.o \
       "$BUILD_DIR"/server/*.o "$BUILD_DIR"/gen/*.o "$BUILD_DIR"/gap/*.o \
       "$A/baselib.a" -static-libstdc++ -llog -ldl -lm -lz

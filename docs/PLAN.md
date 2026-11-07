@@ -57,6 +57,6 @@ unwind for exceptions).
 1. [x] Toolchain and game files verified (`scripts/setup_env.sh`)
 2. [x] Analysis: Il2CppDumper (CodeRegistration 0x3ad2790), function table
    (212,294 + 78,963 __text = 291,257, `scripts/merge_ft_all.py`), type classes, LSDA
-3. [ ] Translation and NDK build of `libil2cpp.so`
-4. [ ] Data: build settings, bundle platform, shaders, textures
+3. [x] Translation and NDK build of `libil2cpp.so` (411 MB stripped; link with LLD 18)
+4. [~] Data: build settings and shaders done (29 bundles + top-level files); bundle platform and BC7 untested
 5. [ ] APK packaging, on-device testing (logcat)

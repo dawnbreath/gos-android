@@ -71,3 +71,17 @@ namespace recomp
     void HookJoystickInput(Ctx& c) { f_200f60c_orig(c); }
     void HookRebindInputSystemKeyDown(Ctx& c) { f_1ecc8f0_orig(c); }
 }
+
+// Symbols a normal Unity Android build gets from its own link:
+//  - __start_il2cpp/__stop_il2cpp bound the "il2cpp" section holding generated
+//    code (os/Posix/Image.cpp). The recompiled code lives in .text; a marker
+//    function makes the linker create the section and the two symbols.
+//  - __data_start/__end__ bound the main program's data for Boehm GC
+//    (gcconfig.h), which this build tells not to register
+//    (GC_DONT_REGISTER_MAIN_STATIC_DATA); they only need to resolve.
+extern "C"
+{
+    __attribute__((section("il2cpp"), used, noinline)) void gosr_il2cpp_section_marker() {}
+    __attribute__((visibility("hidden"))) int __data_start[1];
+    __attribute__((visibility("hidden"))) int __end__[1];
+}

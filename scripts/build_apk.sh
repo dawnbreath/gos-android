@@ -7,7 +7,9 @@
 #   APP       ".../Castlevania Grimoire of Souls.app/Contents" extracted from the .dmg
 #   GAME_ARM64  arm64 slice of GameAssembly.dylib (scripts/thin_arm64.py)
 #   LIBIL2CPP   libil2cpp.so from build_android.sh
-#   DATA_OVERRIDE  optional dir whose files replace those under Data (converted shaders, ...)
+#   PLUGINS     directory with the plugin stand-ins (build_android.sh, stage plugins)
+#   DATA_OVERRIDE  optional dir laid out like Data whose files replace the originals
+#                  (tools/convert_shaders_gles.py output; StreamingAssets/ included)
 #   OUT       output directory
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,6 +25,7 @@ echo "== native libraries"
 cp "$UA/Variations/il2cpp/Release/Libs/arm64-v8a/libmain.so" "$UA/Variations/il2cpp/Release/Libs/arm64-v8a/libunity.so" "$STAGE/lib/arm64-v8a/"
 cp "$LIBIL2CPP" "$STAGE/lib/arm64-v8a/libil2cpp.so"
 cp "$GAME_ARM64" "$STAGE/lib/arm64-v8a/libgosgame.so"   # loaded as data by libil2cpp.so
+[ -n "${PLUGINS:-}" ] && cp "$PLUGINS"/lib*.so "$STAGE/lib/arm64-v8a/"   # build_android.sh plugin stand-ins
 
 echo "== player data"
 D="$STAGE/assets/bin/Data"
@@ -39,10 +42,16 @@ cp -r "$DATA/il2cpp_data/Metadata" "$D/Managed/"
 [ -d "$DATA/il2cpp_data/Resources" ] && cp -r "$DATA/il2cpp_data/Resources" "$D/Managed/"
 printf '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <bool name="useObb">False</bool>\n</resources>\n' > "$D/settings.xml"
 python3 -I "$ROOT/scripts/patch_gfx_api.py" "$DATA/globalgamemanagers" "$D/globalgamemanagers"
-if [ -n "${DATA_OVERRIDE:-}" ]; then cp -r "$DATA_OVERRIDE"/. "$D/"; fi
+if [ -n "${DATA_OVERRIDE:-}" ]; then  # converted files, laid out like Data
+  (cd "$DATA_OVERRIDE" && find . -type f ! -path './StreamingAssets/*' -exec cp --parents {} "$D/" \;)
+  [ -f "$DATA_OVERRIDE/Resources/unity_builtin_extra" ] && cp "$DATA_OVERRIDE/Resources/unity_builtin_extra" "$D/"
+fi
 
 echo "== streaming assets"
 cp -r "$DATA/StreamingAssets"/. "$STAGE/assets/"
+if [ -n "${DATA_OVERRIDE:-}" ] && [ -d "$DATA_OVERRIDE/StreamingAssets" ]; then
+  cp -r "$DATA_OVERRIDE/StreamingAssets"/. "$STAGE/assets/"
+fi
 
 echo "== resources and manifest"
 "$BT/aapt2" compile --dir "$UA/Apk/res" -o "$OUT/res.zip"

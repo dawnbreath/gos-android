@@ -9,7 +9,7 @@
 #   GAP_OUT      translator output (--extra-table helpers)
 #   BRIDGES_OUT  gen_bridges.py output
 #   BUILD_DIR    objects and the .so
-#   STAGES       space-separated subset of: il2cpp glue server gc runtime gen gap link (default: all)
+#   STAGES       space-separated subset of: il2cpp glue server gc runtime gen gap link plugins (default: all)
 set -euo pipefail
 ulimit -s unlimited  # the largest recompiled functions need a deep compiler stack
 
@@ -22,7 +22,7 @@ NDK_BIN="$TP/android-ndk-r19c/toolchains/llvm/prebuilt/linux-x86_64/bin"
 CC="$NDK_BIN/aarch64-linux-android24-clang"
 CXX="$NDK_BIN/aarch64-linux-android24-clang++"
 JOBS="${JOBS:-4}"
-STAGES="${STAGES:-il2cpp glue server gc runtime gen gap link}"
+STAGES="${STAGES:-il2cpp glue server gc runtime gen gap link plugins}"
 RUNTIME="$U/recomp/runtime"
 WB="$U/recomp/winbuild"
 
@@ -90,4 +90,14 @@ if has link; then
       "$BUILD_DIR"/server/*.o "$BUILD_DIR"/gen/*.o "$BUILD_DIR"/gap/*.o \
       "$A/baselib.a" -static-libstdc++ -llog -ldl -lm -lz
   echo "built $BUILD_DIR/libil2cpp.so"
+fi
+if has plugins; then
+  echo "== plugin stand-ins"
+  mkdir -p "$BUILD_DIR/plugins"
+  for name in FPBundleWrapper GameCenterAccessPointBundleWrapper iCloudBundleWrapper GCControllerBundleWrapper \
+              SymbolImageBundleWrapper SystemLangBundle SPFXUnityPlugin; do
+    "$CXX" -shared -fPIC -O2 -std=c++17 -fvisibility=hidden -DGOSR_PLUGIN_$name -static-libstdc++ \
+      -o "$BUILD_DIR/plugins/lib$name.so" "$ROOT/src/plugins/android_plugins.cpp"
+  done
+  ls "$BUILD_DIR/plugins"
 fi

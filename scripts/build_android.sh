@@ -22,6 +22,9 @@ NDK_BIN="$TP/android-ndk-r19c/toolchains/llvm/prebuilt/linux-x86_64/bin"
 CC="$NDK_BIN/aarch64-linux-android24-clang"
 CXX="$NDK_BIN/aarch64-linux-android24-clang++"
 JOBS="${JOBS:-4}"
+# NDK r19c clang can spend hours optimizing a few giant recompiled functions: after
+# TIMEOUT a file is rebuilt at -O0 (seconds)
+TIMEOUT="${TIMEOUT:-900}"
 STAGES="${STAGES:-il2cpp glue server gc runtime gen gap link plugins}"
 RUNTIME="$U/recomp/runtime"
 WB="$U/recomp/winbuild"
@@ -45,7 +48,8 @@ mkdir -p "$BUILD_DIR"/{il2cpp,gc,zlib,gen,gap,glue,server}
 compile() {  # compiler, flags, output dir, sources...
     local cc="$1" flags="$2" out="$3"; shift 3
     printf '%s\n' "$@" | xargs -P "$JOBS" -I{} sh -c \
-        'o="$0/$(echo {} | tr "/" "_" | sed "s/\.[a-zA-Z]*$/.o/")"; [ -s "$o" ] || '"$cc $flags"' -c {} -o "$o" >"$o.log" 2>&1 || echo "FAIL {}"' "$out"
+        'o="$0/$(echo {} | tr "/" "_" | sed "s/\.[a-zA-Z]*$/.o/")"; [ -s "$o" ] || timeout '"$TIMEOUT"' '"$cc $flags"' -c {} -o "$o" >"$o.log" 2>&1 \
+         || { echo "retry -O0 {}"; '"$cc $flags"' -O0 -c {} -o "$o" >>"$o.log" 2>&1; } || echo "FAIL {}"' "$out"
 }
 has() { [[ " $STAGES " == *" $1 "* ]]; }
 
@@ -85,7 +89,8 @@ if has gap; then
 fi
 if has link; then
   echo "== link"
-  "$CXX" -shared -o "$BUILD_DIR/libil2cpp.so" -Wl,--gc-sections -Wl,-soname,libil2cpp.so \
+  # lld: the text exceeds the 128 MB reach of arm64 branches; lld adds range-extension thunks
+  "$CXX" -fuse-ld=lld -shared -o "$BUILD_DIR/libil2cpp.so" -Wl,--gc-sections -Wl,-soname,libil2cpp.so \
       "$BUILD_DIR"/il2cpp/*.o "$BUILD_DIR"/gc/*.o "$BUILD_DIR"/zlib/*.o "$BUILD_DIR"/glue/*.o \
       "$BUILD_DIR"/server/*.o "$BUILD_DIR"/gen/*.o "$BUILD_DIR"/gap/*.o \
       "$A/baselib.a" -static-libstdc++ -llog -ldl -lm -lz

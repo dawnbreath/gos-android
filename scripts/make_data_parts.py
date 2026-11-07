@@ -24,7 +24,7 @@ for rel, path in files:
             z.close()
         part += 1
         size = 0
-        z = zipfile.ZipFile(os.path.join(out, f"GoSRecomp-data-{part:02d}.zip"), "w", zipfile.ZIP_STORED)
+        z = zipfile.ZipFile(os.path.join(out, f"GoSRecomp-data-{part:02d}-of-NN.zip"), "w", zipfile.ZIP_STORED)
     z.write(path, "GoSRecomp/StreamingAssets/" + rel)
     size += n
 z.close()

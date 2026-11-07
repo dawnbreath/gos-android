@@ -4,12 +4,15 @@
 //
 // The image is looked up, in order, at:
 //   $GOSR_GAME_IMAGE
+//   <native library dir>/libgosgame.so           (the APK ships the image under that
+//                                                 name so the installer extracts it)
 //   <il2cpp data dir>/GameAssembly_arm64.dylib   (data dir as set by libunity)
 //   /sdcard/Android/data/<package>/files/GameAssembly_arm64.dylib
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <dlfcn.h>
 #include <sys/stat.h>
 
 #include <android/log.h>
@@ -69,6 +72,12 @@ namespace
         std::vector<std::string> out;
         if (const char* env = getenv("GOSR_GAME_IMAGE"))
             out.push_back(env);
+        Dl_info self{};
+        if (dladdr(reinterpret_cast<void*>(&Exists), &self) && self.dli_fname)
+        {
+            std::string lib = self.dli_fname;
+            out.push_back(lib.substr(0, lib.find_last_of('/') + 1) + "libgosgame.so");
+        }
         std::string data = il2cpp::utils::Runtime::GetDataDir();
         if (!data.empty())
         {

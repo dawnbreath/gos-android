@@ -1,0 +1,135 @@
+diff --git a/recomp/runtime/recomp_bridge.h b/recomp/runtime/recomp_bridge.h
+index e02a8dc..cc52767 100644
+--- a/recomp/runtime/recomp_bridge.h
++++ b/recomp/runtime/recomp_bridge.h
+@@ -22,6 +22,18 @@ namespace recomp
+         uint8_t bytes[Size];
+     };
+ 
++    // Homogeneous floating-point aggregate (Vector3, Color, Quaternion...).
++    // AAPCS64 targets (Android) pass and return these in v registers, so the
++    // native type must be a real float/double aggregate, not a byte array.
++    template <typename E, size_t N>
++    struct Hfa
++    {
++        E e[N];
++    };
++
++    template <typename T>
++    inline uint8_t* BytesOf(T& value) { return reinterpret_cast<uint8_t*>(&value); }
++
+     // Guest stack of the current thread. Entry thunks start below the stack
+     // pointer that was current when guest code last called into native code,
+     // so nested native -> guest -> native -> guest calls never overlap.
+diff --git a/tools/recomp/abi.py b/tools/recomp/abi.py
+index e10d13b..7260180 100644
+--- a/tools/recomp/abi.py
++++ b/tools/recomp/abi.py
+@@ -41,7 +41,9 @@ def native_type(key):
+         return INTS[key][0]
+     if key in FLOATS or key == "void":
+         return key
+-    size, align = key[1:].split("_")[:2]
++    size, align, cls = key[1:].split("_", 2)
++    if cls.startswith("hfa"):  # AAPCS64 passes HFAs in v registers: needs a real float aggregate
++        return f"Hfa<{'float' if cls[4] == 'f' else 'double'}, {int(cls[3])}>"
+     return f"Blob<{size}, {align}>"
+ 
+ 
+@@ -93,13 +95,13 @@ class Unpacker:
+             esize = 4 if elem == "f" else 8
+             lane = "u32" if esize == 4 else "u64"
+             if self.nsrn + n <= 8:
+-                parts = " ".join(f"memcpy({name}.bytes + {k * esize}, &c.v[{self.nsrn + k}].{lane}[0], {esize});" for k in range(n))
++                parts = " ".join(f"memcpy(BytesOf({name}) + {k * esize}, &c.v[{self.nsrn + k}].{lane}[0], {esize});" for k in range(n))
+                 L.append(f"{t} {name}; {parts}")
+                 self.nsrn += n
+             else:
+                 self.nsrn = 8
+                 off = self.stack_slot(size, max(align, 8))
+-                L.append(f"{t} {name}; memcpy({name}.bytes, reinterpret_cast<void*>(c.sp + {off}), {size});")
++                L.append(f"{t} {name}; memcpy(BytesOf({name}), reinterpret_cast<void*>(c.sp + {off}), {size});")
+             return
+         if cls.startswith("int"):
+             regs = int(cls[3])
+@@ -109,12 +111,12 @@ class Unpacker:
+             else:
+                 self.ngrn = 8
+                 off = self.stack_slot(size, max(align, 8))
+-                L.append(f"{t} {name}; memcpy({name}.bytes, reinterpret_cast<void*>(c.sp + {off}), {size});")
++                L.append(f"{t} {name}; memcpy(BytesOf({name}), reinterpret_cast<void*>(c.sp + {off}), {size});")
+             return
+         # indirect: the guest passed a pointer to its copy
+         ptr = f"{name}_ptr"
+         self.take("P", ptr)
+-        L.append(f"{t} {name}; memcpy({name}.bytes, {ptr}, {size});")
++        L.append(f"{t} {name}; memcpy(BytesOf({name}), {ptr}, {size});")
+ 
+ 
+ def store_result(key, expr):
+@@ -137,11 +139,11 @@ def store_result(key, expr):
+         esize = 4 if elem == "f" else 8
+         setter = "SetS32" if esize == 4 else "SetD64"
+         ctype = "uint32_t" if esize == 4 else "uint64_t"
+-        parts = " ".join(f"{{ {ctype} e; memcpy(&e, r.bytes + {k * esize}, {esize}); {setter}(c.v[{k}], e); }}" for k in range(n))
++        parts = " ".join(f"{{ {ctype} e; memcpy(&e, BytesOf(r) + {k * esize}, {esize}); {setter}(c.v[{k}], e); }}" for k in range(n))
+         return [f"{{ {t} r = {expr}; {parts} }}"]
+     if cls.startswith("int"):
+         return [f"{{ {t} r = {expr}; CopyToRegs(&c.x[0], r); }}"]
+-    return [f"{{ {t} r = {expr}; memcpy(reinterpret_cast<void*>(c.x[8]), r.bytes, {size}); }}"]
++    return [f"{{ {t} r = {expr}; memcpy(reinterpret_cast<void*>(c.x[8]), BytesOf(r), {size}); }}"]
+ 
+ 
+ def native_call(ret, params, target):
+diff --git a/tools/recomp/gen_bridges.py b/tools/recomp/gen_bridges.py
+index 5151f25..185b842 100644
+--- a/tools/recomp/gen_bridges.py
++++ b/tools/recomp/gen_bridges.py
+@@ -47,7 +47,9 @@ def native_type(key):
+         return INTS[key][0]
+     if key in FLOATS or key == "void":
+         return key
+-    size, align = key[1:].split("_")[:2]
++    size, align, cls = key[1:].split("_", 2)
++    if cls.startswith("hfa"):  # AAPCS64 passes HFAs in v registers: needs a real float aggregate
++        return f"Hfa<{'float' if cls[4] == 'f' else 'double'}, {int(cls[3])}>"
+     return f"Blob<{size}, {align}>"
+ 
+ class Packer:
+@@ -99,12 +101,12 @@ class Packer:
+                 for k in range(n):
+                     setter = "SetS32" if esize == 4 else "SetD64"
+                     ctype = "uint32_t" if esize == 4 else "uint64_t"
+-                    L.append(f"{{ {ctype} e; memcpy(&e, {name}.bytes + {k * esize}, {esize}); {setter}(c.v[{self.nsrn + k}], e); }}")
++                    L.append(f"{{ {ctype} e; memcpy(&e, BytesOf({name}) + {k * esize}, {esize}); {setter}(c.v[{self.nsrn + k}], e); }}")
+                 self.nsrn += n
+             else:
+                 self.nsrn = 8
+                 off = self.stack_slot(size, max(align, 8))
+-                L.append(f"memcpy(stackArgs + {off}, {name}.bytes, {size});")
++                L.append(f"memcpy(stackArgs + {off}, BytesOf({name}), {size});")
+             return
+         if cls.startswith("int"):
+             regs = int(cls[3])
+@@ -114,10 +116,10 @@ class Packer:
+             else:
+                 self.ngrn = 8
+                 off = self.stack_slot(size, max(align, 8))
+-                L.append(f"memcpy(stackArgs + {off}, {name}.bytes, {size});")
++                L.append(f"memcpy(stackArgs + {off}, BytesOf({name}), {size});")
+             return
+         # indirect: caller-owned copy, pointer passed as an integer argument
+-        L.append(f"alignas(16) uint8_t copy_{name}[{size}]; memcpy(copy_{name}, {name}.bytes, {size});")
++        L.append(f"alignas(16) uint8_t copy_{name}[{size}]; memcpy(copy_{name}, BytesOf({name}), {size});")
+         self.add("P", f"copy_{name}")
+ 
+ def return_code(key):
+@@ -138,7 +140,7 @@ def return_code(key):
+         n, elem = int(cls[3]), cls[4]
+         esize = 4 if elem == "f" else 8
+         lane = "u32" if esize == 4 else "u64"
+-        parts = " ".join(f"memcpy(r.bytes + {k * esize}, &c.v[{k}].{lane}[0], {esize});" for k in range(n))
++        parts = " ".join(f"memcpy(BytesOf(r) + {k * esize}, &c.v[{k}].{lane}[0], {esize});" for k in range(n))
+         return [], f"[&] {{ {t} r; {parts} return r; }}()"
+     if cls.startswith("int"):
+         return [], f"CopyFromRegs<{t}>(&c.x[0])"

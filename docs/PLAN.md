@@ -34,10 +34,22 @@ unwind for exceptions).
 - `libc_imports.cpp`: map to bionic instead of the MSVC CRT.
 - Build: NDK clang, link `baselib.a` from the Unity Android module.
 
+## Done so far
+
+- `patches/0001`: HFA value types get a real `Hfa<float|double, N>` native type in
+  the bridge generators (was an opaque byte blob).
+- `patches/0002`: `recomp/android/aapcs_call.S`, a trampoline that calls native
+  code with the guest's x0-x8/q0-q7 and writes x0/x1/q0-q3 back. Used by the
+  generic native fallback and by the icall marshaller's AAPCS64 path (Apple's
+  packed stack arguments are re-laid into 8-byte slots). Verified under qemu
+  (`tests/run_aapcs_test.sh`).
+- `recomp/runtime/*` compiles with NDK r19c for arm64 with no changes beyond these.
+
 ## Steps
 
 1. [x] Toolchain and game files verified (`scripts/setup_env.sh`)
-2. [ ] Analysis: needs Il2CppDumper (`script.json`, `il2cpp.h`) - pending
+2. [x] Analysis: Il2CppDumper (CodeRegistration 0x3ad2790), function table
+   (212,294 + 78,963 __text = 291,257, `scripts/merge_ft_all.py`), type classes, LSDA
 3. [ ] Translation and NDK build of `libil2cpp.so`
 4. [ ] Data: build settings, bundle platform, shaders, textures
 5. [ ] APK packaging, on-device testing (logcat)

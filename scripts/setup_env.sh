@@ -8,7 +8,8 @@
 #   - Android NDK r19c (the NDK generation Unity 2020.3 uses)
 #   - 7-Zip 24.09 (Ubuntu package; 23.x fails on the .dmg's HFS+ compressed files)
 set -euo pipefail
-TP="${TP:-$PWD/third_party}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TP="${TP:-$ROOT/third_party}"
 mkdir -p "$TP" && cd "$TP"
 
 UNITY_HASH=1fb1bf06830e
@@ -18,6 +19,7 @@ GOSR_COMMIT=c344597ff97290c5c974d66bb203b10c631fcf97
 if [ ! -d GoSRecomp ]; then
   git clone -q https://github.com/BLSNCVS/Castlevania-Grimoire-of-Souls-Recomp GoSRecomp
   git -C GoSRecomp checkout -q "$GOSR_COMMIT"
+  for p in "$ROOT"/patches/*.patch; do git -C GoSRecomp apply "$p"; done
 fi
 
 if [ ! -x 7z24/usr/lib/7zip/7z ]; then

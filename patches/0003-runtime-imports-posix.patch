@@ -1,0 +1,109 @@
+diff --git a/recomp/winbuild/runtime_imports.cpp b/recomp/winbuild/runtime_imports.cpp
+index 5491626..42d910a 100644
+--- a/recomp/winbuild/runtime_imports.cpp
++++ b/recomp/winbuild/runtime_imports.cpp
+@@ -34,8 +34,17 @@
+ 
+ #include "native_adapter.h"
+ #include "il2cpp-api.h"
++#ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
++#else
++// Android: no SEH; the diagnostics that probe memory just read it.
++#define __try if (true)
++#define __except(x) else
++#define EXCEPTION_EXECUTE_HANDLER 0
++#include <pthread.h>  // (winbuild/unistd.h shadows the system header)
++static unsigned long GetCurrentThreadId() { return (unsigned long)pthread_self(); }
++#endif
+ 
+ namespace recomp
+ {
+@@ -166,6 +175,7 @@ namespace
+     const VirtualInvokeData* InterfaceInvokeDataSlowPath(Il2CppObject* obj, const Il2CppClass* itf, uint64_t slot)
+     {
+         const VirtualInvokeData* data = &il2cpp::vm::ClassInlines::GetInterfaceInvokeDataFromVTableSlowPath(obj, itf, Il2CppMethodSlot(slot));
++#ifdef _WIN32
+         HMODULE owner = nullptr;
+         if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                 reinterpret_cast<LPCSTR>(data->methodPtr), &owner))
+@@ -177,6 +187,7 @@ namespace
+             for (uint16_t i = 0; i < k->interface_offsets_count; i++)
+                 fprintf(stderr, "   itf %s at %d\n", il2cpp_type_get_name(&k->interfaceOffsets[i].interfaceType->byval_arg), k->interfaceOffsets[i].offset);
+         }
++#endif
+         return data;
+     }
+ 
+@@ -210,7 +221,11 @@ namespace
+     {
+         Enter(c);
+         auto* g = Arg<const GuestPInvokeArguments*>(c, 0);
++#ifdef _WIN32
+         std::wstring module(g->moduleName, g->moduleName + g->moduleNameLength);
++#else
++        std::string module(g->moduleName, g->moduleNameLength);  // Il2CppNativeChar is char
++#endif
+         PInvokeArguments args = {
+             il2cpp::utils::StringView<Il2CppNativeChar>(module.c_str(), module.size()),
+             il2cpp::utils::StringView<char>(g->entryPoint, g->entryPointLength),
+@@ -289,9 +304,13 @@ namespace recomp
+                 fprintf(stderr, "   itf %s.%s at %d\n", k->interfaceOffsets[i].interfaceType->namespaze, k->interfaceOffsets[i].interfaceType->name, k->interfaceOffsets[i].offset);
+             for (int r = 1; r <= 3; r++)
+             {
+-                MEMORY_BASIC_INFORMATION mbi{};
+                 auto* maybe = reinterpret_cast<Il2CppClass*>(c.x[r]);
++#ifdef _WIN32
++                MEMORY_BASIC_INFORMATION mbi{};
+                 if (c.x[r] && VirtualQuery(maybe, &mbi, sizeof(mbi)) && mbi.State == MEM_COMMIT && maybe->klass == maybe)
++#else
++                if (false)
++#endif
+                     fprintf(stderr, "  x%d is class %s.%s\n", r, maybe->namespaze, maybe->name);
+                 else
+                     fprintf(stderr, "  x%d = 0x%llx\n", r, static_cast<unsigned long long>(c.x[r]));
+@@ -313,6 +332,7 @@ namespace recomp
+     // (C++ throw of an Il2CppExceptionWrapper), bypassing the codegen thunks.
+     // A first-chance handler reports those too, with the native stack, which
+     // names the recompiled function (f_<guest address>) via the map file.
++#ifdef _WIN32
+     bool IsIl2CppThrow(const EXCEPTION_RECORD* record)
+     {
+         constexpr DWORD kMsvcException = 0xE06D7363;
+@@ -382,6 +402,8 @@ namespace recomp
+         return EXCEPTION_CONTINUE_SEARCH;
+     }
+ 
++#endif
++
+     // GOSR_LAYOUT_CHECK=<file>: compares the runtime's field offsets with the
+     // ones the game was compiled with (lines "namespace\tclass\tfield\toffset",
+     // offsets as Il2CppDumper prints them: value types without the object header).
+@@ -665,6 +687,7 @@ namespace recomp
+         if (staticsCheck)
+             CheckStatics();
+         // which effects plugin the game loaded (a stale stub keeps battles on the loading screen)
++#ifdef _WIN32
+         static bool pluginReported = false;
+         if (!pluginReported)
+             if (HMODULE spfx = GetModuleHandleW(L"SPFXUnityPlugin.dll"))
+@@ -699,6 +722,7 @@ namespace recomp
+                         fixedCur, fixedDelta2, dynCur, d40, d70, tm[0xc2], fc, d8, e0, e8);
+             }
+         }
++#endif
+         static Il2CppClass* onDemand = [] {
+             size_t n = 0;
+             const Il2CppAssembly** asms = il2cpp_domain_get_assemblies(il2cpp_domain_get(), &n);
+@@ -718,8 +742,10 @@ namespace recomp
+     void RegisterRuntimeImports()
+     {
+         g_sampleStateHook = &PrintEngineState;
++#ifdef _WIN32
+         if (!getenv("GOSR_NO_TRACE"))
+             AddVectoredExceptionHandler(1, OnNativeThrow);
++#endif
+         // codegen/il2cpp-codegen-common.cpp
+         RegisterImport(0x192c54, NoReturn);
+         RegisterImport(0x192c58, WriteBarrier);

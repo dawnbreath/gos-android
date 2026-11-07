@@ -44,6 +44,13 @@ unwind for exceptions).
   packed stack arguments are re-laid into 8-byte slots). Verified under qemu
   (`tests/run_aapcs_test.sh`).
 - `recomp/runtime/*` compiles with NDK r19c for arm64 with no changes beyond these.
+- `tools/msl2glsl.py`, `tools/convert_shaders_gles.py`: Metal -> GLSL ES 3.00.
+  Each fragment variant is paired with its best vertex variant (and vice
+  versa) into one GLES3 program listed under progVertex, as Unity's own GLES3
+  shaders are. All 1,329 unique programs of the top-level data files pass
+  glslangValidator, including the vertex/fragment link check
+  (`tools/validate_gles.py`). Instancing variants (structured buffers) and
+  render_target_array_index become stubs, as upstream does for D3D11.
 
 ## Steps
 
